@@ -30,3 +30,21 @@ L'utilisateur `inspecteur` a recouvré son accès en lecture seule.
 
 ## 6. Leçon Apprise
 Cet incident démontre que les permissions octales (chmod) ne sont opérantes que si la matrice d'identité (chown/chgrp) est strictement maintenue. En sécurité, l'usurpation ou la modification accidentelle du groupe propriétaire neutralise instantanément les règles d'accès configurées.
+
+## 7. Suite donnée
+
+Cet incident a été découvert **par l'utilisateur**, au moment où il s'est heurté au
+`Permission denied`. C'est le pire moment pour découvrir une dérive de configuration.
+
+Le script [`scripts/01_verify_identities.sh`](../scripts/01_verify_identities.sh) a été
+écrit pour que cela ne se reproduise pas : il compare la matrice observée à la matrice
+attendue et **sort en code d'erreur** dès qu'un écart apparaît. Rejoué sur la panne
+décrite ci-dessus, il produit :
+
+```
+  [FAIL]  groupe propriétaire   attendu: audit_team   obtenu: root
+  [ OK ]  droits octaux                               750
+```
+
+La ligne `[ OK ]` sur les droits octaux est la démonstration du problème : un contrôle
+limité à `chmod` aurait conclu que tout allait bien.

@@ -1,28 +1,117 @@
-# Linux Server Hardening et Isolation Lab
+# Linux Hardening Lab
 
-## Objectif du Projet
-Ce projet est un laboratoire d'administration système et de cybersécurité démontrant l'implémentation du concept de **Défense en Profondeur** (Defense in Depth). 
+Laboratoire de durcissement d'un système Linux, construit **couche par couche** selon le
+principe de défense en profondeur.
 
-L'objectif est de partir d'un système Ubuntu Server nu et de le durcir couche par couche, en suivant une architecture en "oignon" : de la gestion stricte des identités du noyau jusqu'à l'isolation applicative via conteneurisation.
+> **État au 25/09/2026 : couche 1 automatisée et contrôlée. 4 couches restantes.** Ce dépôt décrit ce qu'il contient,
+> pas ce qu'il vise. Les couches non faites sont marquées comme telles.
 
-## Technologies Utilisées
-* **OS & Virtualisation :** Ubuntu Server, VMware
-* **Automatisation :** Bash (Scripts d'Infrastructure as Code)
-* **Sécurité & Accès :** SSH (clés cryptographiques), UFW (Pare-feu)
-* **Audit & Prévention :** auditd, fail2ban
-* **Isolation :** Docker
+---
 
-## Architecture en Couches (La Méthode de l'Oignon)
-1. **Le Cœur :** Gestion des identités (Users/Groups) et matrice des permissions octales.
-2. **L'Accès :** Sécurisation des flux d'administration (SSH).
-3. **Le Périmètre :** Filtrage réseau strict (Default Deny via UFW).
-4. **La Surveillance :** Prévention des intrusions (fail2ban) et traçabilité noyau (auditd).
-5. **L'Isolation :** Conteneurisation des services (Docker).
+## État d'avancement
 
-## Structure du Dépôt
-* `/scripts` : Contient les scripts Bash d'automatisation numérotés par ordre d'exécution.
-* `/docs` : Contient les rapports "Post-Mortem" détaillant la méthode de diagnostic et de résolution d'incidents provoqués pour tester la robustesse du système.
-* `/conf` : Fichiers de configuration de référence.
+| | Couche | État | Ce qui existe dans ce dépôt |
+|---|---|---|---|
+| 1 | **Identités et permissions** — utilisateurs, groupes, matrice octale | ✅ **faite** | 2 scripts idempotents + 1 rapport d'incident |
+| 2 | **Accès** — durcissement SSH, authentification par clés | ⬜ non commencée | — |
+| 3 | **Périmètre** — pare-feu en *default deny* | ⬜ non commencée | — |
+| 4 | **Surveillance** — détection d'intrusion et traçabilité | ⬜ non commencée | — |
+| 5 | **Isolation** — cloisonnement des services | ⬜ non commencée | — |
 
-## Méthodologie d'Apprentissage
-Chaque couche de ce laboratoire a été construite selon le cycle de validation : **Comprendre -> Construire -> Casser (Test de résistance) -> Réparer (Analyse des logs)**. Les rapports d'incidents dans le dossier `/docs` reflètent cette démarche de test empirique.
+**`conf/` est vide aujourd'hui** — il se remplira à partir de la couche 2. Je préfère un
+dépôt qui dit vrai à un dépôt qui promet.
+
+---
+
+## Ce que ce dépôt contient réellement
+
+### Deux scripts, couche 1
+
+| Script | Rôle |
+|---|---|
+| [`scripts/01_setup_identities.sh`](scripts/01_setup_identities.sh) | Met en place la matrice : groupe `audit_team`, utilisateur restreint `inspecteur`, répertoire protégé en `root:audit_team 750`. **Idempotent** — relançable sans erreur et sans effet de bord |
+| [`scripts/01_verify_identities.sh`](scripts/01_verify_identities.sh) | **Miroir du précédent** : vérifie les 7 assertions du setup et **sort en code 1** si la matrice a dérivé |
+
+**Le second est le plus utile des deux.** Il détecte précisément la panne décrite ci-dessous
+— celle où les droits octaux restent parfaitement corrects pendant que l'accès est cassé :
+
+```
+  [FAIL]  groupe propriétaire   attendu: audit_team   obtenu: root
+  [ OK ]  droits octaux                               750
+```
+
+Un contrôle qui n'aurait vérifié que `chmod` aurait répondu « conforme ».
+
+### Un rapport d'incident sur la couche 1 : [`docs/incident_01_permissions.md`](docs/incident_01_permissions.md)
+
+Un répertoire protégé en `750` pour le groupe `audit_team` devient subitement inaccessible
+à un membre de ce groupe. Les droits octaux n'ont pourtant pas bougé.
+
+Le rapport suit le cheminement complet : symptôme (`Permission denied`), diagnostic par
+`ls -ld`, identification de la vraie cause — **le groupe propriétaire avait été réinitialisé
+à `root`, faisant basculer l'utilisateur dans la catégorie « autres »** — puis résolution et
+preuve de la résolution.
+
+**La leçon, et c'est le cœur du travail :** les permissions octales ne valent que si la
+matrice d'identité tient. Un `chmod` correct sur un `chown` erroné ne protège rien.
+
+---
+
+## La méthode
+
+Chaque couche suit le même cycle, et **aucune couche n'est considérée comme faite tant que
+le cycle n'est pas bouclé** :
+
+```
+Comprendre  →  Construire  →  Casser  →  Réparer
+```
+
+- **Comprendre** — le mécanisme, avant l'outil.
+- **Construire** — un script idempotent, relançable sans casser l'état existant.
+- **Casser** — provoquer volontairement la panne pour éprouver la configuration.
+- **Réparer** — diagnostiquer à partir des traces, puis écrire le rapport.
+
+➡️ **Un rapport d'incident par couche.** C'est ce qui distingue un lab d'un tutoriel
+recopié : le tutoriel montre que ça marche, le rapport montre qu'on sait quoi faire quand
+ça ne marche plus.
+
+---
+
+## Environnement
+
+| | |
+|---|---|
+| Système | Linux (Debian / Ubuntu) |
+| Exécution | **Conteneur Docker** nommé `linuxlab` |
+| Automatisation | Bash |
+
+⚠️ **Ce lab tourne dans un conteneur, pas dans une machine virtuelle.** C'est une limite
+assumée, et elle a des conséquences réelles sur ce qui est démontrable : un conteneur
+partage le noyau de l'hôte, donc les couches qui touchent au noyau — traçabilité de type
+`auditd`, certains modules de sécurité — ne pourront pas être éprouvées de la même façon.
+Ce point sera traité quand la couche concernée arrivera.
+
+---
+
+## Structure du dépôt
+
+```
+docs/      rapports d'incident, un par couche éprouvée
+scripts/   scripts Bash numérotés par ordre d'exécution
+conf/      fichiers de configuration de référence          (vide aujourd'hui)
+```
+
+## Utilisation
+
+```bash
+sudo ./scripts/01_setup_identities.sh     # met en place, relançable
+./scripts/01_verify_identities.sh         # contrôle — code 0 si conforme, 1 sinon
+```
+
+---
+
+## Prochaine étape
+
+**Couche 2 — l'accès** : durcissement de SSH (authentification par clés, refus de
+l'authentification par mot de passe, refus de la connexion directe en root), avec le
+même couple setup / contrôle, et le rapport d'incident qui va avec.

@@ -1,0 +1,4 @@
+# Les scripts shell doivent garder des fins de ligne LF, même écrits sous Windows.
+# Sinon Linux lit le shebang comme "/usr/bin/env bash^M" et répond :
+#   bash: ./script.sh: /usr/bin/env: bad interpreter: No such file or directory
+*.sh text eol=lf
