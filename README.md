@@ -18,8 +18,10 @@ principe de défense en profondeur.
 | 4 | **Surveillance** — détection d'intrusion et traçabilité | ⬜ non commencée | — |
 | 5 | **Isolation** — cloisonnement des services | ⬜ non commencée | — |
 
-**`conf/` est vide aujourd'hui** — il se remplira à partir de la couche 2. Je préfère un
-dépôt qui dit vrai à un dépôt qui promet.
+En complément des couches, un **audit transversal ANSSI** (voir plus bas) applique le
+référentiel ANSSI-BP-028 à l'ensemble du système.
+
+Je préfère un dépôt qui dit vrai à un dépôt qui promet.
 
 ---
 
@@ -41,6 +43,21 @@ dépôt qui dit vrai à un dépôt qui promet.
 ```
 
 Un contrôle qui n'aurait vérifié que `chmod` aurait répondu « conforme ».
+
+### Audit ANSSI transversal (ANSSI-BP-028)
+
+| Fichier | Rôle |
+|---|---|
+| [`scripts/audit_anssi.sh`](scripts/audit_anssi.sh) | **Lecture seule.** Confronte le système au référentiel ANSSI : sysctl noyau et réseau, fichiers *world-writable*, inventaire SUID/SGID, umask. Chaque contrôle porte son n° de recommandation. Trois verdicts : `CONFORME` / `ÉCART` / `N/A conteneur` |
+| [`scripts/harden_anssi.sh`](scripts/harden_anssi.sh) | **Son pendant « setup ».** Installe `conf/99-anssi-hardening.conf` dans `/etc/sysctl.d/` et fixe l'umask. Idempotent |
+| [`conf/99-anssi-hardening.conf`](conf/99-anssi-hardening.conf) | La configuration sysctl de référence, une ligne par recommandation |
+
+**Ce que l'audit démontre honnêtement dans un conteneur** : l'umask est corrigé (R35), mais
+les réglages `sysctl` du noyau sont **refusés** — `/proc/sys` y est monté en lecture seule.
+C'est une protection du conteneur, pas une panne, et c'est documenté dans
+[`docs/incident_02_sysctl_readonly.md`](docs/incident_02_sysctl_readonly.md). L'audit continue
+donc, à juste titre, de signaler ces écarts : **il ne ment pas sous prétexte qu'un script de
+durcissement a prétendu réussir.**
 
 ### Un rapport d'incident sur la couche 1 : [`docs/incident_01_permissions.md`](docs/incident_01_permissions.md)
 
@@ -96,9 +113,9 @@ Ce point sera traité quand la couche concernée arrivera.
 ## Structure du dépôt
 
 ```
-docs/      rapports d'incident, un par couche éprouvée
-scripts/   scripts Bash numérotés par ordre d'exécution
-conf/      fichiers de configuration de référence          (vide aujourd'hui)
+docs/      rapports d'incident (couche 1, et audit ANSSI sysctl)
+scripts/   scripts Bash : couches numérotées + audit/harden ANSSI
+conf/      fichiers de configuration de référence (99-anssi-hardening.conf)
 ```
 
 ## Utilisation
