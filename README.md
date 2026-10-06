@@ -3,8 +3,10 @@
 Laboratoire de durcissement d'un système Linux, construit **couche par couche** selon le
 principe de défense en profondeur.
 
-> **État au 25/09/2026 : couche 1 automatisée et contrôlée. 4 couches restantes.** Ce dépôt décrit ce qu'il contient,
-> pas ce qu'il vise. Les couches non faites sont marquées comme telles.
+> **État au 06/10/2026 : couches 1 et 2 automatisées et contrôlées + audit ANSSI transversal.**
+> Les couches 3 à 5 touchent au noyau (réseau, audit) : elles sont écrites **en configuration**
+> mais ne peuvent pas être appliquées dans ce conteneur — elles le seront sur une vraie machine.
+> Ce dépôt décrit ce qu'il contient, pas ce qu'il vise. Les limites sont marquées comme telles.
 
 ---
 
@@ -13,9 +15,9 @@ principe de défense en profondeur.
 | | Couche | État | Ce qui existe dans ce dépôt |
 |---|---|---|---|
 | 1 | **Identités et permissions** — utilisateurs, groupes, matrice octale | ✅ **faite** | 2 scripts idempotents + 1 rapport d'incident |
-| 2 | **Accès** — durcissement SSH, authentification par clés | ⬜ non commencée | — |
-| 3 | **Périmètre** — pare-feu en *default deny* | ⬜ non commencée | — |
-| 4 | **Surveillance** — détection d'intrusion et traçabilité | ⬜ non commencée | — |
+| 2 | **Accès** — durcissement SSH, authentification par clés | ✅ **faite** | config durcie + 1 script de contrôle (`sshd -T`) + 2 rapports d'incident |
+| 3 | **Périmètre** — pare-feu en *default deny* | 🟡 config écrite | règles UFW + contrôle — **non applicable dans le conteneur** (pas de `NET_ADMIN`) |
+| 4 | **Surveillance** — détection d'intrusion et traçabilité | ⬜ non commencée | touche au noyau (`auditd`) — attend une vraie machine |
 | 5 | **Isolation** — cloisonnement des services | ⬜ non commencée | — |
 
 En complément des couches, un **audit transversal ANSSI** (voir plus bas) applique le
@@ -43,6 +45,23 @@ Je préfère un dépôt qui dit vrai à un dépôt qui promet.
 ```
 
 Un contrôle qui n'aurait vérifié que `chmod` aurait répondu « conforme ».
+
+### Durcissement SSH, couche 2
+
+| Fichier | Rôle |
+|---|---|
+| [`conf/sshd_hardening.conf`](conf/sshd_hardening.conf) | La politique **déclarative** : mot de passe interdit, connexion root directe interdite, authentification par clé seule. Drop-in pour `/etc/ssh/sshd_config.d/` |
+| [`scripts/02_verify_ssh.sh`](scripts/02_verify_ssh.sh) | **Miroir de la config.** Lit `sshd -T` (la config **effective** du démon, pas le fichier), compare, **sort en code 1** si une directive a dérivé |
+
+**Le point qui fait la différence** : le contrôle interroge `sshd -T`, pas le fichier de
+config. Le fichier dit *ce qu'on a écrit* ; `sshd -T` dit *ce que le démon applique vraiment*.
+Lire la réalité, pas l'intention — la même règle qu'à la couche 1 (`ls -ld` plutôt que la
+commande `chmod` qu'on croit avoir lancée).
+
+Deux rapports d'incident sur cette couche :
+- [`docs/incident_03_ssh_lockout.md`](docs/incident_03_ssh_lockout.md) — **durcir un accès, c'est
+  risquer de se le fermer.** L'ordre d'opérations (déposer et prouver la clé *avant* de couper
+  le mot de passe) est ce qui sépare un durcissement d'un verrouillage. Matrice de test à l'appui.
 
 ### Audit ANSSI transversal (ANSSI-BP-028)
 
@@ -113,22 +132,25 @@ Ce point sera traité quand la couche concernée arrivera.
 ## Structure du dépôt
 
 ```
-docs/      rapports d'incident (couche 1, et audit ANSSI sysctl)
+docs/      rapports d'incident (couches 1-2, et audit ANSSI sysctl)
 scripts/   scripts Bash : couches numérotées + audit/harden ANSSI
-conf/      fichiers de configuration de référence (99-anssi-hardening.conf)
+conf/      fichiers de configuration de référence (sshd_hardening.conf, 99-anssi-hardening.conf)
 ```
 
 ## Utilisation
 
 ```bash
-sudo ./scripts/01_setup_identities.sh     # met en place, relançable
-./scripts/01_verify_identities.sh         # contrôle — code 0 si conforme, 1 sinon
+sudo ./scripts/01_setup_identities.sh     # couche 1 : met en place, relançable
+./scripts/01_verify_identities.sh         # couche 1 : contrôle — code 0 si conforme, 1 sinon
+sudo ./scripts/02_verify_ssh.sh           # couche 2 : contrôle SSH via sshd -T (root requis)
 ```
 
 ---
 
 ## Prochaine étape
 
-**Couche 2 — l'accès** : durcissement de SSH (authentification par clés, refus de
-l'authentification par mot de passe, refus de la connexion directe en root), avec le
-même couple setup / contrôle, et le rapport d'incident qui va avec.
+**Couche 3 — le périmètre** : pare-feu en *default deny* (tout refuser en entrée, puis ouvrir
+le strict nécessaire — SSH). Les règles UFW et leur contrôle sont **écrits**, mais ce conteneur
+n'a pas la capacité `NET_ADMIN` : il ne peut pas reconfigurer le réseau du noyau qu'il partage
+avec l'hôte. La couche est donc livrée **en configuration** et sera appliquée pour de vrai sur
+une machine à noyau dédié (VM ou poste Linux). Même limite que les `sysctl` de l'incident 02.
